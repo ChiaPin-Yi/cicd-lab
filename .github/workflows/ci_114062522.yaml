@@ -1,0 +1,83 @@
+name: ci_114062522
+
+on:
+  push:
+    branches:
+      - '**'
+
+permissions:
+  contents: read
+  checks: write
+
+concurrency:
+  group: ci-114062522-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: Typecheck, format, test, and coverage
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ['22', '24']
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript typecheck
+        run: npm run typecheck
+
+      - name: Prettier check
+        run: npm run format:check
+
+      - name: Test
+        run: |
+          mkdir -p reports
+          npm test -- --reporter=default --reporter=junit --outputFile.junit=reports/junit-node-${{ matrix.node-version }}.xml
+
+      - name: Upload test report artifact
+        if: ${{ always() && hashFiles(format('reports/junit-node-{0}.xml', matrix.node-version)) != '' && !env.ACT }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: vitest-junit-node-${{ matrix.node-version }}
+          path: reports/junit-node-${{ matrix.node-version }}.xml
+          if-no-files-found: error
+
+      - name: Publish test results
+        if: ${{ always() && hashFiles(format('reports/junit-node-{0}.xml', matrix.node-version)) != '' && !env.ACT }}
+        uses: dorny/test-reporter@v3
+        with:
+          name: Vitest Results - Node ${{ matrix.node-version }}
+          path: reports/junit-node-${{ matrix.node-version }}.xml
+          reporter: java-junit
+          token: ${{ github.token }}
+
+      - name: Coverage
+        run: npm run test:coverage
+
+      - name: Publish coverage summary
+        if: ${{ always() && hashFiles('coverage/coverage-summary.json') != '' && !env.ACT }}
+        uses: davelosert/vitest-coverage-report-action@v2
+        with:
+          name: Coverage - Node ${{ matrix.node-version }}
+          json-summary-path: coverage/coverage-summary.json
+          json-final-path: coverage/coverage-final.json
+
+      - name: Upload coverage artifact
+        if: ${{ always() && hashFiles('coverage/**') != '' && !env.ACT }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: vitest-coverage-node-${{ matrix.node-version }}
+          path: coverage/
+          if-no-files-found: error
